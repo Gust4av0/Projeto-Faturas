@@ -42,21 +42,30 @@ const upload = multer({
 router.post('/', async (req, res) => {
   try {
     const db = getDatabase()
-    const { title, description, folderId } = req.body
+    const { title, description, folderId, folderPath } = req.body
 
     if (!title || !title.trim()) {
       return res.status(400).json({ error: 'Título é obrigatório' })
     }
 
     const invoiceId = uuidv4()
+    let actualFolderId = folderId
+
+    // Se enviou o path em vez do ID, buscar o ID
+    if (folderPath && !folderId) {
+      const folderStmt = db.prepare('SELECT id FROM folders WHERE path = ?')
+      const folder = folderStmt.get(folderPath)
+      actualFolderId = folder ? folder.id : null
+    }
 
     const stmt = db.prepare('INSERT INTO invoices (id, title, description, folderId, status) VALUES (?, ?, ?, ?, ?)')
-    stmt.run(invoiceId, title, description || '', folderId || null, 'draft')
+    stmt.run(invoiceId, title, description || '', actualFolderId || null, 'draft')
 
     res.json({
       id: invoiceId,
       title,
       description: description || '',
+      folderId: actualFolderId,
       status: 'draft',
       createdAt: new Date().toISOString()
     })
@@ -70,7 +79,7 @@ router.post('/', async (req, res) => {
 router.post('/upload-pdf', upload.single('file'), async (req, res) => {
   try {
     const db = getDatabase()
-    const { invoiceId, password } = req.body
+    const { invoiceId, password, folderPath } = req.body
 
     if (!req.file) {
       return res.status(400).json({ error: 'Arquivo não foi enviado' })
@@ -112,9 +121,16 @@ router.post('/upload-pdf', upload.single('file'), async (req, res) => {
         pdfInfo
       })
     } else {
-      // Apenas salvar PDF
-      const stmt = db.prepare('INSERT INTO invoices (id, originalPdfPath, password) VALUES (?, ?, ?)')
-      stmt.run(invoiceIdToUse, originalPdfPath, password || null)
+      // Apenas salvar PDF - buscar o ID da pasta se folderPath foi enviado
+      let actualFolderId = null
+      if (folderPath) {
+        const folderStmt = db.prepare('SELECT id FROM folders WHERE path = ?')
+        const folder = folderStmt.get(folderPath)
+        actualFolderId = folder ? folder.id : null
+      }
+
+      const stmt = db.prepare('INSERT INTO invoices (id, originalPdfPath, password, folderId) VALUES (?, ?, ?, ?)')
+      stmt.run(invoiceIdToUse, originalPdfPath, password || null, actualFolderId)
 
       res.json({
         id: invoiceIdToUse,

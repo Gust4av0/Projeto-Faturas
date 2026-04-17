@@ -51,7 +51,7 @@ export default function FolderView({
       const response = await axios.post(API_ENDPOINTS.INVOICES, {
         title: invoiceTitle,
         description: invoiceDescription,
-        folderId: currentPath
+        folderPath: currentPath
       })
       
       alert('Fatura criada com sucesso!')
@@ -223,7 +223,7 @@ export default function FolderView({
               onInvoiceCreated(pdf)
             }
           }}
-          folderId={currentPath}
+          folderPath={currentPath}
         />
       )}
 
