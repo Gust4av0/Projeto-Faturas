@@ -129,11 +129,16 @@ router.post('/upload-pdf', upload.single('file'), async (req, res) => {
         actualFolderId = folder ? folder.id : null
       }
 
-      const stmt = db.prepare('INSERT INTO invoices (id, originalPdfPath, password, folderId) VALUES (?, ?, ?, ?)')
-      stmt.run(invoiceIdToUse, originalPdfPath, password || null, actualFolderId)
+      // Gerar título automático baseado no nome do arquivo
+      const fileNameWithoutExt = path.parse(req.file.originalname).name
+      const autoTitle = fileNameWithoutExt || `Fatura ${new Date().toLocaleDateString('pt-BR')}`
+
+      const stmt = db.prepare('INSERT INTO invoices (id, title, originalPdfPath, password, folderId, status) VALUES (?, ?, ?, ?, ?, ?)')
+      stmt.run(invoiceIdToUse, autoTitle, originalPdfPath, password || null, actualFolderId, 'draft')
 
       res.json({
         id: invoiceIdToUse,
+        title: autoTitle,
         pdfPath: originalPdfPath,
         pdfInfo
       })

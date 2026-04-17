@@ -12,10 +12,28 @@ router.get('/', async (req, res) => {
     const currentPath = folderPath || '/'
 
     // Buscar pastas do caminho atual
-    const stmt = db.prepare('SELECT * FROM folders WHERE parentPath = ? ORDER BY name')
-    const folders = stmt.all(currentPath)
+    const folderStmt = db.prepare('SELECT * FROM folders WHERE parentPath = ? ORDER BY name')
+    const folders = folderStmt.all(currentPath)
 
-    res.json(folders.map(f => ({ ...f, type: 'folder' })))
+    // Se não está na raiz, buscar a pasta para ter o ID
+    let currentFolderId = null
+    if (currentPath !== '/') {
+      const currentFolderStmt = db.prepare('SELECT id FROM folders WHERE path = ?')
+      const currentFolder = currentFolderStmt.get(currentPath)
+      currentFolderId = currentFolder ? currentFolder.id : null
+    }
+
+    // Buscar faturas da pasta atual
+    const invoiceStmt = db.prepare('SELECT * FROM invoices WHERE folderId = ? ORDER BY createdAt DESC')
+    const invoices = currentFolderId ? invoiceStmt.all(currentFolderId) : []
+
+    // Combinar pastas e faturas
+    const result = [
+      ...folders.map(f => ({ ...f, type: 'folder' })),
+      ...invoices.map(i => ({ ...i, type: 'invoice' }))
+    ]
+
+    res.json(result)
   } catch (error) {
     console.error('Erro ao listar pastas:', error)
     res.status(500).json({ error: error.message })
