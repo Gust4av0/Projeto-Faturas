@@ -146,6 +146,14 @@ router.post('/upload-pdf', upload.single('file'), async (req, res) => {
       })
     }
 
+    if (error.code === 'PASSWORD_TOOL_UNAVAILABLE') {
+      removeFileIfExists(req.file?.path)
+      return res.status(503).json({
+        code: 'PASSWORD_TOOL_UNAVAILABLE',
+        error: 'O servidor identificou que o PDF tem senha, mas o ambiente nao conseguiu abrir a ferramenta necessaria para processa-lo.'
+      })
+    }
+
     removeFileIfExists(req.file?.path)
     res.status(500).json({ error: error.message })
   }

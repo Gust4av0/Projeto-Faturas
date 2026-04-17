@@ -136,6 +136,10 @@ export async function inspectPdfProtection(pdfPath, password = null) {
         passwordValid: true
       }
     }
+
+    const error = new Error('PDF protegido por senha')
+    error.code = 'PASSWORD_REQUIRED'
+    throw error
   }
 
   const args = []
@@ -171,7 +175,9 @@ export async function inspectPdfProtection(pdfPath, password = null) {
     }
   }
 
-  throw new Error(result.stderr || 'Nao foi possivel verificar a protecao do PDF')
+  const error = new Error(result.stderr || 'Nao foi possivel verificar a protecao do PDF')
+  error.code = result.exitCode === 127 ? 'PASSWORD_TOOL_UNAVAILABLE' : 'PDF_PROTECTION_CHECK_FAILED'
+  throw error
 }
 
 export async function decryptPdfIfNeeded(originalPdfPath, password = null) {
@@ -211,7 +217,7 @@ export async function decryptPdfIfNeeded(originalPdfPath, password = null) {
 
   if (result.exitCode !== 0) {
     const error = new Error(result.stderr || 'Nao foi possivel descriptografar o PDF')
-    error.code = 'INVALID_PDF_PASSWORD'
+    error.code = result.exitCode === 127 ? 'PASSWORD_TOOL_UNAVAILABLE' : 'INVALID_PDF_PASSWORD'
     throw error
   }
 
@@ -281,7 +287,11 @@ export async function extractPdfInfo(pdfPath, password = null) {
       encrypted: preparedPdf.encrypted
     }
   } catch (error) {
-    if (error.code === 'PASSWORD_REQUIRED' || error.code === 'INVALID_PDF_PASSWORD') {
+    if (
+      error.code === 'PASSWORD_REQUIRED' ||
+      error.code === 'INVALID_PDF_PASSWORD' ||
+      error.code === 'PASSWORD_TOOL_UNAVAILABLE'
+    ) {
       throw error
     }
 

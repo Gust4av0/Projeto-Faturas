@@ -10,6 +10,7 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
   const [password, setPassword] = useState('')
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [passwordError, setPasswordError] = useState('')
+  const [passwordHelper, setPasswordHelper] = useState('')
   const [loading, setLoading] = useState(false)
   const [updating, setUpdating] = useState(false)
   const fileInputRef = useRef(null)
@@ -22,6 +23,7 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
     setSelectedFile(initialFile)
     setPassword('')
     setPasswordError('')
+    setPasswordHelper('')
     setShowPasswordModal(false)
   }, [initialFile, invoice.id])
 
@@ -38,6 +40,7 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
     setSelectedFile(file)
     setPassword('')
     setPasswordError('')
+    setPasswordHelper('')
     setShowPasswordModal(false)
   }
 
@@ -107,6 +110,7 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
       setSelectedFile(null)
       setPassword('')
       setPasswordError('')
+      setPasswordHelper('')
       setShowPasswordModal(false)
       onUpdate(response.data)
     } catch (error) {
@@ -114,6 +118,11 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
 
       if (errorCode === 'PASSWORD_REQUIRED' || errorCode === 'INVALID_PDF_PASSWORD') {
         setPasswordError(errorCode === 'INVALID_PDF_PASSWORD' ? 'Senha incorreta. Tente novamente.' : '')
+        setPasswordHelper('Digite a senha do PDF para gerar o arquivo final com as paginas de descricao.')
+        setShowPasswordModal(true)
+      } else if (errorCode === 'PASSWORD_TOOL_UNAVAILABLE') {
+        setPasswordError('')
+        setPasswordHelper('O PDF pediu senha, mas o servidor nao conseguiu abrir a ferramenta de leitura protegida. Reinicie o backend no ambiente correto e tente novamente.')
         setShowPasswordModal(true)
       } else {
         console.error('Erro ao fazer upload:', error)
@@ -249,6 +258,7 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
                       setSelectedFile(null)
                       setPassword('')
                       setPasswordError('')
+                      setPasswordHelper('')
                       setShowPasswordModal(false)
                     }}
                     className="text-red-500 hover:text-red-700"
@@ -305,6 +315,7 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
                 onChange={(event) => {
                   setPassword(event.target.value)
                   setPasswordError('')
+                  setPasswordHelper('Digite a senha do PDF para gerar o arquivo final com as paginas de descricao.')
                 }}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') {
@@ -319,6 +330,11 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
                 <p className="mt-2 text-sm text-red-600 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4" />
                   {passwordError}
+                </p>
+              )}
+              {passwordHelper && (
+                <p className="mt-2 text-sm text-gray-600">
+                  {passwordHelper}
                 </p>
               )}
             </div>
