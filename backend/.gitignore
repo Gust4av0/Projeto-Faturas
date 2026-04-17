@@ -1,0 +1,14 @@
+node_modules/
+.env.local
+.env.*.local
+dist/
+build/
+*.log
+.DS_Store
+.vscode/
+*.swp
+*.swo
+uploads/
+invoices.db
+invoices.db-shm
+invoices.db-wal
