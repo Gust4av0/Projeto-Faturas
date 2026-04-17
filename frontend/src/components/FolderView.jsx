@@ -1,6 +1,9 @@
 import React, { useState } from 'react'
-import { Plus, FolderPlus, ChevronRight, Trash2 } from 'lucide-react'
+import { Plus, FolderPlus, ChevronRight, Trash2, Upload } from 'lucide-react'
 import InvoiceCard from './InvoiceCard'
+import PDFUpload from './PDFUpload'
+import axios from 'axios'
+import { API_ENDPOINTS } from '../config/api'
 
 export default function FolderView({
   folders,
@@ -8,10 +11,16 @@ export default function FolderView({
   setCurrentPath,
   onCreateFolder,
   onDeleteFolder,
-  loading
+  loading,
+  onInvoiceCreated
 }) {
   const [newFolderName, setNewFolderName] = useState('')
   const [showNewFolderInput, setShowNewFolderInput] = useState(false)
+  const [showNewInvoiceForm, setShowNewInvoiceForm] = useState(false)
+  const [showPDFUpload, setShowPDFUpload] = useState(false)
+  const [invoiceTitle, setInvoiceTitle] = useState('')
+  const [invoiceDescription, setInvoiceDescription] = useState('')
+  const [invoiceLoading, setInvoiceLoading] = useState(false)
 
   const handleCreateFolder = () => {
     if (newFolderName.trim()) {
@@ -29,6 +38,36 @@ export default function FolderView({
     const pathParts = currentPath.split('/').filter(p => p)
     const newPath = '/' + pathParts.slice(0, -1).join('/')
     setCurrentPath(newPath === '/' ? '/' : newPath)
+  }
+
+  const handleCreateInvoice = async () => {
+    if (!invoiceTitle.trim()) {
+      alert('Título é obrigatório')
+      return
+    }
+
+    try {
+      setInvoiceLoading(true)
+      const response = await axios.post(API_ENDPOINTS.INVOICES, {
+        title: invoiceTitle,
+        description: invoiceDescription,
+        folderId: currentPath
+      })
+      
+      alert('Fatura criada com sucesso!')
+      setInvoiceTitle('')
+      setInvoiceDescription('')
+      setShowNewInvoiceForm(false)
+      
+      if (onInvoiceCreated) {
+        onInvoiceCreated(response.data)
+      }
+    } catch (error) {
+      console.error('Erro ao criar fatura:', error)
+      alert('Erro ao criar fatura: ' + (error.response?.data?.error || error.message))
+    } finally {
+      setInvoiceLoading(false)
+    }
   }
 
   return (
@@ -58,12 +97,28 @@ export default function FolderView({
         <h1 className="text-3xl font-bold text-gray-800">Minhas Faturas</h1>
         <div className="flex gap-4">
           {currentPath !== '/' && (
-            <button
-              onClick={handleBackFolder}
-              className="px-4 py-2 bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-lg transition font-semibold"
-            >
-              ← Voltar
-            </button>
+            <>
+              <button
+                onClick={() => setShowNewInvoiceForm(true)}
+                className="flex items-center gap-2 px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition font-semibold"
+              >
+                <Plus className="w-5 h-5" />
+                Nova Fatura
+              </button>
+              <button
+                onClick={() => setShowPDFUpload(true)}
+                className="flex items-center gap-2 px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition font-semibold"
+              >
+                <Upload className="w-5 h-5" />
+                Importar PDF
+              </button>
+              <button
+                onClick={handleBackFolder}
+                className="px-4 py-2 bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-lg transition font-semibold"
+              >
+                ← Voltar
+              </button>
+            </>
           )}
           <button
             onClick={() => setShowNewFolderInput(true)}
@@ -103,6 +158,73 @@ export default function FolderView({
             Cancelar
           </button>
         </div>
+      )}
+
+      {/* Modal Nova Fatura */}
+      {showNewInvoiceForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full mx-4">
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Nova Fatura</h2>
+            
+            <div className="mb-4">
+              <label className="block text-gray-700 font-semibold mb-2">Título *</label>
+              <input
+                type="text"
+                placeholder="Ex: Fatura Claro - Março"
+                value={invoiceTitle}
+                onChange={(e) => setInvoiceTitle(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleCreateInvoice()}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-600"
+                autoFocus
+              />
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-gray-700 font-semibold mb-2">Descrição</label>
+              <textarea
+                placeholder="Ex: Conta telefônica do mês..."
+                value={invoiceDescription}
+                onChange={(e) => setInvoiceDescription(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-600 resize-none"
+                rows="4"
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleCreateInvoice}
+                disabled={invoiceLoading}
+                className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition font-semibold disabled:opacity-50"
+              >
+                {invoiceLoading ? 'Criando...' : 'Criar Fatura'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowNewInvoiceForm(false)
+                  setInvoiceTitle('')
+                  setInvoiceDescription('')
+                }}
+                className="flex-1 px-4 py-2 bg-gray-400 hover:bg-gray-500 text-white rounded-lg transition font-semibold"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal PDF Upload */}
+      {showPDFUpload && (
+        <PDFUpload
+          onClose={() => setShowPDFUpload(false)}
+          onUpload={(pdf) => {
+            setShowPDFUpload(false)
+            if (onInvoiceCreated) {
+              onInvoiceCreated(pdf)
+            }
+          }}
+          folderId={currentPath}
+        />
       )}
 
       {/* Grid de Pastas e Faturas */}

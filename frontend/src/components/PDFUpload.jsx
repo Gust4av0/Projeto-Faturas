@@ -3,7 +3,7 @@ import { X, Upload, AlertCircle } from 'lucide-react'
 import axios from 'axios'
 import { API_ENDPOINTS } from '../config/api'
 
-export default function PDFUpload({ onClose, onUpload }) {
+export default function PDFUpload({ onClose, onUpload, folderId, invoiceId }) {
   const [isDragging, setIsDragging] = useState(false)
   const [selectedFile, setSelectedFile] = useState(null)
   const [password, setPassword] = useState('')
@@ -59,6 +59,12 @@ export default function PDFUpload({ onClose, onUpload }) {
       formData.append('file', selectedFile)
       if (password) {
         formData.append('password', password)
+      }
+      if (invoiceId) {
+        formData.append('invoiceId', invoiceId)
+      }
+      if (folderId) {
+        formData.append('folderId', folderId)
       }
 
       const response = await axios.post(API_ENDPOINTS.INVOICE_UPLOAD, formData, {
