@@ -1,22 +1,27 @@
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
 import * as fs from 'fs'
-import * as path from 'path'
-import pdfParse from 'pdf-parse'
+import path from 'path'
+import { fileURLToPath, pathToFileURL } from 'url'
+import { inspectProtectedPdf, renderProtectedPdfToDocument } from './pdfProtectedRenderer.js'
 
-const execFileAsync = promisify(execFile)
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const runtimeRoot = path.resolve(__dirname, 'pdf-runtime', 'node_modules')
+const pdfLibModuleUrl = pathToFileURL(path.join(runtimeRoot, 'pdf-lib', 'cjs', 'index.js')).href
 const FONT_SIZE = 12
 const TITLE_SIZE = 16
 const LINE_HEIGHT = 18
 const MARGIN = 50
 const DESCRIPTION_TITLE = 'DESCRICAO DA FATURA'
-const QPDF_CANDIDATES = [
-  process.env.QPDF_PATH,
-  'C:\\qpdf\\bin\\qpdf.exe',
-  'qpdf',
-  'qpdf.exe'
-].filter(Boolean)
+
+async function loadPdfLib() {
+  const pdfLib = await import(pdfLibModuleUrl)
+
+  return {
+    PDFDocument: pdfLib.PDFDocument,
+    StandardFonts: pdfLib.StandardFonts,
+    rgb: pdfLib.rgb
+  }
+}
 
 function wrapText(text, maxWidth, font, fontSize) {
   const words = text.split(/\s+/).filter(Boolean)
@@ -43,7 +48,7 @@ function wrapText(text, maxWidth, font, fontSize) {
   return lines.length > 0 ? lines : ['']
 }
 
-function addDescriptionPage(pdfDoc, description, font, referencePage) {
+function addDescriptionPage(pdfDoc, description, font, referencePage, rgb) {
   const page = pdfDoc.addPage(referencePage ? [referencePage.getWidth(), referencePage.getHeight()] : undefined)
   const { width, height } = page.getSize()
 
@@ -83,40 +88,9 @@ function addDescriptionPage(pdfDoc, description, font, referencePage) {
   }
 }
 
-async function runQpdf(args) {
-  let lastError = null
-
-  for (const command of QPDF_CANDIDATES) {
-    try {
-      const result = await execFileAsync(command, args, { windowsHide: true })
-      return { ...result, exitCode: 0, command }
-    } catch (error) {
-      lastError = error
-
-      if (error.code === 'ENOENT') {
-        continue
-      }
-
-      return {
-        stdout: error.stdout || '',
-        stderr: error.stderr || '',
-        exitCode: typeof error.code === 'number' ? error.code : 1,
-        command
-      }
-    }
-  }
-
-  return {
-    stdout: '',
-    stderr: `qpdf nao encontrado. Configure a variavel QPDF_PATH ou instale em C:\\qpdf\\bin\\qpdf.exe`,
-    exitCode: 127,
-    command: QPDF_CANDIDATES[0] || 'qpdf',
-    error: lastError
-  }
-}
-
 async function canLoadPdfWithoutPassword(pdfPath) {
   try {
+    const { PDFDocument } = await loadPdfLib()
     const pdfBytes = fs.readFileSync(pdfPath)
     await PDFDocument.load(pdfBytes)
     return true
@@ -125,33 +99,10 @@ async function canLoadPdfWithoutPassword(pdfPath) {
   }
 }
 
-export async function inspectPdfProtection(pdfPath, password = null) {
-  if (!password) {
-    const openedWithoutPassword = await canLoadPdfWithoutPassword(pdfPath)
+export async function inspectPdfProtection(pdfPath) {
+  const openedWithoutPassword = await canLoadPdfWithoutPassword(pdfPath)
 
-    if (openedWithoutPassword) {
-      return {
-        encrypted: false,
-        passwordRequired: false,
-        passwordValid: true
-      }
-    }
-
-    const error = new Error('PDF protegido por senha')
-    error.code = 'PASSWORD_REQUIRED'
-    throw error
-  }
-
-  const args = []
-
-  if (password) {
-    args.push(`--password=${password}`)
-  }
-
-  args.push('--requires-password', pdfPath)
-  const result = await runQpdf(args)
-
-  if (result.exitCode === 2) {
+  if (openedWithoutPassword) {
     return {
       encrypted: false,
       passwordRequired: false,
@@ -159,29 +110,25 @@ export async function inspectPdfProtection(pdfPath, password = null) {
     }
   }
 
-  if (result.exitCode === 3) {
-    return {
-      encrypted: true,
-      passwordRequired: false,
-      passwordValid: true
-    }
+  return {
+    encrypted: true,
+    passwordRequired: true,
+    passwordValid: false,
+    requiresProtectedRenderer: true
   }
-
-  if (result.exitCode === 0) {
-    return {
-      encrypted: true,
-      passwordRequired: true,
-      passwordValid: false
-    }
-  }
-
-  const error = new Error(result.stderr || 'Nao foi possivel verificar a protecao do PDF')
-  error.code = result.exitCode === 127 ? 'PASSWORD_TOOL_UNAVAILABLE' : 'PDF_PROTECTION_CHECK_FAILED'
-  throw error
 }
 
 export async function decryptPdfIfNeeded(originalPdfPath, password = null) {
-  const inspection = await inspectPdfProtection(originalPdfPath, password)
+  if (password) {
+    return {
+      pdfPath: originalPdfPath,
+      encrypted: true,
+      cleanup: null,
+      useProtectedRenderer: true
+    }
+  }
+
+  const inspection = await inspectPdfProtection(originalPdfPath)
 
   if (!inspection.encrypted) {
     return {
@@ -191,45 +138,9 @@ export async function decryptPdfIfNeeded(originalPdfPath, password = null) {
     }
   }
 
-  if (!password) {
-    const error = new Error('PDF protegido por senha')
-    error.code = 'PASSWORD_REQUIRED'
-    throw error
-  }
-
-  if (!inspection.passwordValid) {
-    const error = new Error('Senha do PDF invalida')
-    error.code = 'INVALID_PDF_PASSWORD'
-    throw error
-  }
-
-  const decryptedPath = path.join(
-    path.dirname(originalPdfPath),
-    `${path.basename(originalPdfPath, path.extname(originalPdfPath))}-decrypted.pdf`
-  )
-
-  const result = await runQpdf([
-    `--password=${password}`,
-    '--decrypt',
-    originalPdfPath,
-    decryptedPath
-  ])
-
-  if (result.exitCode !== 0) {
-    const error = new Error(result.stderr || 'Nao foi possivel descriptografar o PDF')
-    error.code = result.exitCode === 127 ? 'PASSWORD_TOOL_UNAVAILABLE' : 'INVALID_PDF_PASSWORD'
-    throw error
-  }
-
-  return {
-    pdfPath: decryptedPath,
-    encrypted: true,
-    cleanup: () => {
-      if (fs.existsSync(decryptedPath)) {
-        fs.unlinkSync(decryptedPath)
-      }
-    }
-  }
+  const error = new Error('PDF protegido por senha')
+  error.code = 'PASSWORD_REQUIRED'
+  throw error
 }
 
 export async function mergePDFWithDescription(originalPdfPath, description, password = null) {
@@ -237,6 +148,12 @@ export async function mergePDFWithDescription(originalPdfPath, description, pass
 
   try {
     preparedPdf = await decryptPdfIfNeeded(originalPdfPath, password)
+
+    if (preparedPdf.useProtectedRenderer) {
+      return await renderProtectedPdfToDocument(originalPdfPath, description, password)
+    }
+
+    const { PDFDocument, StandardFonts, rgb } = await loadPdfLib()
     const pdfBytes = fs.readFileSync(preparedPdf.pdfPath)
     const sourcePdf = await PDFDocument.load(pdfBytes)
     const newPdf = await PDFDocument.create()
@@ -249,7 +166,7 @@ export async function mergePDFWithDescription(originalPdfPath, description, pass
       newPdf.addPage(copiedPage)
 
       if (shouldInsertDescription) {
-        addDescriptionPage(newPdf, description.trim(), font, copiedPage)
+        addDescriptionPage(newPdf, description.trim(), font, copiedPage, rgb)
       }
     }
 
@@ -277,21 +194,23 @@ export async function extractPdfInfo(pdfPath, password = null) {
 
   try {
     preparedPdf = await decryptPdfIfNeeded(pdfPath, password)
+
+    if (preparedPdf.useProtectedRenderer) {
+      return await inspectProtectedPdf(pdfPath, password)
+    }
+
+    const { PDFDocument } = await loadPdfLib()
     const pdfBuffer = fs.readFileSync(preparedPdf.pdfPath)
-    const data = await pdfParse(pdfBuffer)
+    const pdf = await PDFDocument.load(pdfBuffer)
 
     return {
-      pages: data.numpages,
-      hasText: data.text.trim().length > 0,
+      pages: pdf.getPageCount(),
+      hasText: true,
       success: true,
       encrypted: preparedPdf.encrypted
     }
   } catch (error) {
-    if (
-      error.code === 'PASSWORD_REQUIRED' ||
-      error.code === 'INVALID_PDF_PASSWORD' ||
-      error.code === 'PASSWORD_TOOL_UNAVAILABLE'
-    ) {
+    if (error.code === 'PASSWORD_REQUIRED' || error.code === 'INVALID_PDF_PASSWORD') {
       throw error
     }
 
