@@ -11,6 +11,12 @@ const TITLE_SIZE = 16
 const LINE_HEIGHT = 18
 const MARGIN = 50
 const DESCRIPTION_TITLE = 'DESCRICAO DA FATURA'
+const QPDF_CANDIDATES = [
+  process.env.QPDF_PATH,
+  'qpdf',
+  'qpdf.exe',
+  'C:\\qpdf\\bin\\qpdf.exe'
+].filter(Boolean)
 
 function wrapText(text, maxWidth, font, fontSize) {
   const words = text.split(/\s+/).filter(Boolean)
@@ -78,15 +84,34 @@ function addDescriptionPage(pdfDoc, description, font, referencePage) {
 }
 
 async function runQpdf(args) {
-  try {
-    const result = await execFileAsync('qpdf', args, { windowsHide: true })
-    return { ...result, exitCode: 0 }
-  } catch (error) {
-    return {
-      stdout: error.stdout || '',
-      stderr: error.stderr || '',
-      exitCode: typeof error.code === 'number' ? error.code : 1
+  let lastError = null
+
+  for (const command of QPDF_CANDIDATES) {
+    try {
+      const result = await execFileAsync(command, args, { windowsHide: true })
+      return { ...result, exitCode: 0, command }
+    } catch (error) {
+      lastError = error
+
+      if (error.code === 'ENOENT') {
+        continue
+      }
+
+      return {
+        stdout: error.stdout || '',
+        stderr: error.stderr || '',
+        exitCode: typeof error.code === 'number' ? error.code : 1,
+        command
+      }
     }
+  }
+
+  return {
+    stdout: '',
+    stderr: `qpdf nao encontrado. Configure a variavel QPDF_PATH ou instale em C:\\qpdf\\bin\\qpdf.exe`,
+    exitCode: 127,
+    command: QPDF_CANDIDATES[0] || 'qpdf',
+    error: lastError
   }
 }
 
