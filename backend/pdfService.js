@@ -13,9 +13,9 @@ const MARGIN = 50
 const DESCRIPTION_TITLE = 'DESCRICAO DA FATURA'
 const QPDF_CANDIDATES = [
   process.env.QPDF_PATH,
+  'C:\\qpdf\\bin\\qpdf.exe',
   'qpdf',
-  'qpdf.exe',
-  'C:\\qpdf\\bin\\qpdf.exe'
+  'qpdf.exe'
 ].filter(Boolean)
 
 function wrapText(text, maxWidth, font, fontSize) {
@@ -115,7 +115,29 @@ async function runQpdf(args) {
   }
 }
 
+async function canLoadPdfWithoutPassword(pdfPath) {
+  try {
+    const pdfBytes = fs.readFileSync(pdfPath)
+    await PDFDocument.load(pdfBytes)
+    return true
+  } catch (error) {
+    return false
+  }
+}
+
 export async function inspectPdfProtection(pdfPath, password = null) {
+  if (!password) {
+    const openedWithoutPassword = await canLoadPdfWithoutPassword(pdfPath)
+
+    if (openedWithoutPassword) {
+      return {
+        encrypted: false,
+        passwordRequired: false,
+        passwordValid: true
+      }
+    }
+  }
+
   const args = []
 
   if (password) {

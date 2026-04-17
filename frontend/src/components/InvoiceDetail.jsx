@@ -103,6 +103,7 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
       })
 
       alert('PDF processado com sucesso! A fatura foi atualizada.')
+      await handleDownloadGeneratedPDF(response.data)
       setSelectedFile(null)
       setPassword('')
       setPasswordError('')
@@ -123,27 +124,36 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
     }
   }
 
+  const handleDownloadGeneratedPDF = async (targetInvoice = invoice) => {
+    if (!targetInvoice?.pdfPath) {
+      return
+    }
+
+    try {
+      const response = await axios.get(API_ENDPOINTS.INVOICE_DOWNLOAD(targetInvoice.id), {
+        responseType: 'blob'
+      })
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `${targetInvoice.title}.pdf`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error('Erro ao baixar PDF:', error)
+      alert('PDF gerado, mas houve erro ao baixar automaticamente. Use o botao Baixar PDF Processado.')
+    }
+  }
+
   const handleDownloadPDF = async () => {
     if (!invoice.pdfPath) {
       alert('PDF nao esta disponivel')
       return
     }
 
-    try {
-      const response = await axios.get(API_ENDPOINTS.INVOICE_DOWNLOAD(invoice.id), {
-        responseType: 'blob'
-      })
-      const url = window.URL.createObjectURL(new Blob([response.data]))
-      const link = document.createElement('a')
-      link.href = url
-      link.setAttribute('download', `${invoice.title}.pdf`)
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-    } catch (error) {
-      console.error('Erro ao baixar PDF:', error)
-      alert('Erro ao baixar PDF')
-    }
+    await handleDownloadGeneratedPDF(invoice)
   }
 
   return (
