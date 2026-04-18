@@ -1,18 +1,52 @@
 import * as fs from 'fs'
 import path from 'path'
+import { createRequire } from 'module'
 import { fileURLToPath, pathToFileURL } from 'url'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const runtimeRoot = path.resolve(__dirname, 'pdf-runtime', 'node_modules')
-const pdfjsModuleUrl = pathToFileURL(path.join(runtimeRoot, 'pdfjs-dist', 'legacy', 'build', 'pdf.mjs')).href
-const canvasModuleUrl = pathToFileURL(path.join(runtimeRoot, '@napi-rs', 'canvas', 'index.js')).href
-const pdfLibModuleUrl = pathToFileURL(path.join(runtimeRoot, 'pdf-lib', 'cjs', 'index.js')).href
-const standardFontDataUrl = `${pathToFileURL(path.join(runtimeRoot, 'pdfjs-dist', 'standard_fonts')).href}/`
+const require = createRequire(import.meta.url)
+
+function resolveRuntimePath(...segments) {
+  const candidates = [
+    path.join(__dirname, 'pdf-runtime', 'node_modules', ...segments),
+    path.join(__dirname, 'node_modules', ...segments)
+  ]
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0]
+}
+
+const pdfjsModuleUrl = pathToFileURL(resolveRuntimePath('pdfjs-dist', 'legacy', 'build', 'pdf.mjs')).href
+const canvasModulePath = resolveRuntimePath('@napi-rs', 'canvas', 'index.js')
+const pdfLibModuleUrl = pathToFileURL(resolveRuntimePath('pdf-lib', 'cjs', 'index.js')).href
+const standardFontDataUrl = `${pathToFileURL(resolveRuntimePath('pdfjs-dist', 'standard_fonts')).href}/`
 const FONT_SIZE = 12
 const TITLE_SIZE = 16
 const LINE_HEIGHT = 18
 const MARGIN = 50
+const SIGNATURE_Y = 130
+const SIGNATURE_RESERVED_HEIGHT = 100
+const RENDER_SCALE = 2
+const SIGNATURE_LABEL = 'Assinatura:_____________________'
+
+function mapRuntimeError(error) {
+  const message = error?.message || ''
+
+  if (
+    error?.code === 'MODULE_NOT_FOUND' ||
+    error?.code === 'ERR_MODULE_NOT_FOUND' ||
+    message.includes('pdfjs-dist') ||
+    message.includes('@napi-rs/canvas') ||
+    message.includes('pdf-lib') ||
+    message.includes('DOMMatrix is not defined')
+  ) {
+    const mapped = new Error('Ferramenta de leitura de PDF protegido indisponivel')
+    mapped.code = 'PASSWORD_TOOL_UNAVAILABLE'
+    throw mapped
+  }
+
+  throw error
+}
 
 function wrapText(text, maxWidth, font, fontSize) {
   const words = text.split(/\s+/).filter(Boolean)
@@ -60,9 +94,10 @@ function addDescriptionPage(pdfDoc, description, font, width, height, rgb) {
 
   const wrappedLines = wrapText(description || '', width - (MARGIN * 2), font, FONT_SIZE)
   let yPosition = height - 110
+  const minimumTextY = SIGNATURE_Y + SIGNATURE_RESERVED_HEIGHT
 
   for (const line of wrappedLines) {
-    if (yPosition < MARGIN) {
+    if (yPosition < minimumTextY) {
       break
     }
 
@@ -76,21 +111,76 @@ function addDescriptionPage(pdfDoc, description, font, width, height, rgb) {
 
     yPosition -= LINE_HEIGHT
   }
+
+  page.drawText(SIGNATURE_LABEL, {
+    x: MARGIN,
+    y: SIGNATURE_Y,
+    size: FONT_SIZE,
+    font,
+    color: rgb(0.2, 0.2, 0.2)
+  })
 }
 
-async function loadRuntimeModules() {
-  const [pdfjsLib, canvasLib, pdfLib] = await Promise.all([
-    import(pdfjsModuleUrl),
-    import(canvasModuleUrl),
-    import(pdfLibModuleUrl)
-  ])
+async function loadPdfJsLib() {
+  try {
+    const canvasLib = loadCanvasLib()
+    ensurePdfJsNodeCompat(canvasLib)
+    return await import(pdfjsModuleUrl)
+  } catch (error) {
+    mapRuntimeError(error)
+  }
+}
 
-  return {
-    pdfjsLib,
-    createCanvas: canvasLib.createCanvas,
-    PDFDocument: pdfLib.PDFDocument,
-    StandardFonts: pdfLib.StandardFonts,
-    rgb: pdfLib.rgb
+function loadCanvasLib() {
+  try {
+    return require(canvasModulePath)
+  } catch (error) {
+    mapRuntimeError(error)
+  }
+}
+
+function ensurePdfJsNodeCompat(canvasLib) {
+  if (!process.getBuiltinModule) {
+    process.getBuiltinModule = (moduleName) => {
+      try {
+        return require(moduleName)
+      } catch {
+        return undefined
+      }
+    }
+  }
+
+  if (!globalThis.DOMMatrix) {
+    globalThis.DOMMatrix = canvasLib.DOMMatrix
+  }
+
+  if (!globalThis.ImageData) {
+    globalThis.ImageData = canvasLib.ImageData
+  }
+
+  if (!globalThis.Path2D) {
+    globalThis.Path2D = canvasLib.Path2D
+  }
+}
+
+async function loadProtectedRendererModules() {
+  try {
+    const canvasLib = loadCanvasLib()
+    ensurePdfJsNodeCompat(canvasLib)
+    const [pdfjsLib, pdfLib] = await Promise.all([
+      import(pdfjsModuleUrl),
+      import(pdfLibModuleUrl)
+    ])
+
+    return {
+      pdfjsLib,
+      createCanvas: canvasLib.createCanvas,
+      PDFDocument: pdfLib.PDFDocument,
+      StandardFonts: pdfLib.StandardFonts,
+      rgb: pdfLib.rgb
+    }
+  } catch (error) {
+    mapRuntimeError(error)
   }
 }
 
@@ -112,15 +202,20 @@ function mapPasswordError(error, pdfjsLib) {
   throw error
 }
 
-export async function inspectProtectedPdf(pdfPath, password = null) {
-  const { pdfjsLib } = await loadRuntimeModules()
+function createLoadingTask(pdfjsLib, pdfPath, password = null) {
   const data = new Uint8Array(fs.readFileSync(pdfPath))
-  const loadingTask = pdfjsLib.getDocument({
+
+  return pdfjsLib.getDocument({
     data,
-    password: password || undefined,
+    password: typeof password === 'string' && password.length > 0 ? password : undefined,
     disableWorker: true,
     standardFontDataUrl
   })
+}
+
+export async function inspectProtectedPdf(pdfPath, password = null) {
+  const pdfjsLib = await loadPdfJsLib()
+  const loadingTask = createLoadingTask(pdfjsLib, pdfPath, password)
 
   try {
     const pdf = await loadingTask.promise
@@ -138,14 +233,8 @@ export async function inspectProtectedPdf(pdfPath, password = null) {
 }
 
 export async function renderProtectedPdfToDocument(pdfPath, description, password) {
-  const { pdfjsLib, createCanvas, PDFDocument, StandardFonts, rgb } = await loadRuntimeModules()
-  const data = new Uint8Array(fs.readFileSync(pdfPath))
-  const loadingTask = pdfjsLib.getDocument({
-    data,
-    password,
-    disableWorker: true,
-    standardFontDataUrl
-  })
+  const { pdfjsLib, createCanvas, PDFDocument, StandardFonts, rgb } = await loadProtectedRendererModules()
+  const loadingTask = createLoadingTask(pdfjsLib, pdfPath, password)
 
   try {
     const pdf = await loadingTask.promise
@@ -159,15 +248,16 @@ export async function renderProtectedPdfToDocument(pdfPath, description, passwor
     }
 
     for (const page of pages) {
-      const viewport = page.getViewport({ scale: 2 })
-      const width = Math.ceil(viewport.width)
-      const height = Math.ceil(viewport.height)
-      const canvas = createCanvas(width, height)
+      const pageViewport = page.getViewport({ scale: 1 })
+      const renderViewport = page.getViewport({ scale: RENDER_SCALE })
+      const width = pageViewport.width
+      const height = pageViewport.height
+      const canvas = createCanvas(Math.ceil(renderViewport.width), Math.ceil(renderViewport.height))
       const context = canvas.getContext('2d')
 
       await page.render({
         canvasContext: context,
-        viewport
+        viewport: renderViewport
       }).promise
 
       const imageBytes = canvas.toBuffer('image/png')

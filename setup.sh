@@ -16,7 +16,17 @@ fi
 cd ..
 
 echo ""
-echo "[2/4] Instalando dependencias do Frontend..."
+echo "[2/5] Instalando dependencias do runtime de PDF protegido..."
+cd backend/pdf-runtime
+npm install
+if [ $? -ne 0 ]; then
+    echo "Erro ao instalar dependencias do runtime de PDF protegido"
+    exit 1
+fi
+cd ../..
+
+echo ""
+echo "[3/5] Instalando dependencias do Frontend..."
 cd frontend
 npm install
 if [ $? -ne 0 ]; then
@@ -26,11 +36,11 @@ fi
 cd ..
 
 echo ""
-echo "[3/4] Criando diretorios necessarios..."
+echo "[4/5] Criando diretorios necessarios..."
 mkdir -p backend/uploads
 
 echo ""
-echo "[4/4] Setup completo!"
+echo "[5/5] Setup completo!"
 echo ""
 echo "================================"
 echo "Proximo Passo:"

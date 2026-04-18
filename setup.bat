@@ -15,7 +15,17 @@ if errorlevel 1 (
 cd ..
 
 echo.
-echo [2/4] Instalando dependencias do Frontend...
+echo [2/5] Instalando dependencias do runtime de PDF protegido...
+cd backend\pdf-runtime
+call npm install
+if errorlevel 1 (
+    echo Erro ao instalar dependencias do runtime de PDF protegido
+    exit /b 1
+)
+cd ..\..
+
+echo.
+echo [3/5] Instalando dependencias do Frontend...
 cd frontend
 call npm install
 if errorlevel 1 (
@@ -25,11 +35,11 @@ if errorlevel 1 (
 cd ..
 
 echo.
-echo [3/4] Criando diretorios necessarios...
+echo [4/5] Criando diretorios necessarios...
 if not exist "backend\uploads" mkdir backend\uploads
 
 echo.
-echo [4/4] Setup completo!
+echo [5/5] Setup completo!
 echo.
 echo ================================
 echo Proximo Passo:

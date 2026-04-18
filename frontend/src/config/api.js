@@ -3,7 +3,9 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 export const API_ENDPOINTS = {
   // Folders
   FOLDERS: `${API_BASE_URL}/folders`,
+  FOLDER_DETAILS: `${API_BASE_URL}/folders/details`,
   FOLDER_CREATE: `${API_BASE_URL}/folders`,
+  FOLDER_UPDATE: (id) => `${API_BASE_URL}/folders/${id}`,
   FOLDER_DELETE: (id) => `${API_BASE_URL}/folders/${id}`,
 
   // Invoices

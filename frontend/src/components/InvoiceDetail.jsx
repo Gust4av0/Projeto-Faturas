@@ -2,8 +2,10 @@ import React, { useEffect, useRef, useState } from 'react'
 import { X, Upload, Download, AlertCircle, Lock } from 'lucide-react'
 import axios from 'axios'
 import { API_ENDPOINTS } from '../config/api'
+import { useFeedback } from './FeedbackProvider'
 
 export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile = null }) {
+  const feedback = useFeedback()
   const [isDragging, setIsDragging] = useState(false)
   const [description, setDescription] = useState(invoice.description || '')
   const [selectedFile, setSelectedFile] = useState(initialFile)
@@ -33,7 +35,10 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
     }
 
     if (file.type !== 'application/pdf') {
-      alert('Por favor, selecione um arquivo PDF')
+      void feedback.warning({
+        title: 'Arquivo invalido',
+        message: 'Por favor, selecione um arquivo PDF.'
+      })
       return
     }
 
@@ -66,7 +71,10 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
 
   const handleUpdateDescription = async () => {
     if (description === invoice.description) {
-      alert('Descricao nao foi alterada')
+      await feedback.info({
+        title: 'Nenhuma alteracao',
+        message: 'A descricao continua igual, entao nao ha nada para atualizar.'
+      })
       return
     }
 
@@ -75,11 +83,17 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
       const response = await axios.put(`${API_ENDPOINTS.INVOICES}/${invoice.id}`, {
         description
       })
-      alert('Descricao atualizada com sucesso!')
+      await feedback.success({
+        title: 'Descricao atualizada',
+        message: 'A descricao da fatura foi salva com sucesso.'
+      })
       onUpdate(response.data)
     } catch (error) {
       console.error('Erro ao atualizar descricao:', error)
-      alert('Erro ao atualizar descricao')
+      await feedback.error({
+        title: 'Erro ao atualizar descricao',
+        message: error.response?.data?.error || error.message
+      })
     } finally {
       setUpdating(false)
     }
@@ -87,7 +101,10 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
 
   const handleUploadPDF = async () => {
     if (!selectedFile) {
-      alert('Por favor, selecione um arquivo PDF')
+      await feedback.warning({
+        title: 'PDF obrigatorio',
+        message: 'Por favor, selecione um arquivo PDF antes de processar.'
+      })
       return
     }
 
@@ -97,15 +114,14 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
       formData.append('file', selectedFile)
       formData.append('invoiceId', invoice.id)
 
-      if (password.trim()) {
-        formData.append('password', password.trim())
+      if (password.length > 0) {
+        formData.append('password', password)
       }
 
       const response = await axios.post(API_ENDPOINTS.INVOICE_UPLOAD, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
 
-      alert('PDF processado com sucesso! A fatura foi atualizada.')
       await handleDownloadGeneratedPDF(response.data)
       setSelectedFile(null)
       setPassword('')
@@ -113,6 +129,10 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
       setPasswordHelper('')
       setShowPasswordModal(false)
       onUpdate(response.data)
+      await feedback.success({
+        title: 'PDF gerado',
+        message: 'O PDF foi processado com sucesso e a fatura foi atualizada.'
+      })
     } catch (error) {
       const errorCode = error.response?.data?.code
 
@@ -122,11 +142,14 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
         setShowPasswordModal(true)
       } else if (errorCode === 'PASSWORD_TOOL_UNAVAILABLE') {
         setPasswordError('')
-        setPasswordHelper('O PDF pediu senha, mas o servidor nao conseguiu abrir a ferramenta de leitura protegida. Reinicie o backend no ambiente correto e tente novamente.')
+        setPasswordHelper('O PDF pediu senha, mas o runtime de PDF protegido do backend nao estava pronto. Rode npm install no backend, reinicie o servidor e tente novamente.')
         setShowPasswordModal(true)
       } else {
         console.error('Erro ao fazer upload:', error)
-        alert(`Erro ao fazer upload do PDF: ${error.response?.data?.error || error.message}`)
+        await feedback.error({
+          title: 'Erro ao processar PDF',
+          message: error.response?.data?.error || error.message
+        })
       }
     } finally {
       setLoading(false)
@@ -152,13 +175,19 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
       window.URL.revokeObjectURL(url)
     } catch (error) {
       console.error('Erro ao baixar PDF:', error)
-      alert('PDF gerado, mas houve erro ao baixar automaticamente. Use o botao Baixar PDF Processado.')
+      await feedback.warning({
+        title: 'PDF gerado',
+        message: 'O PDF foi gerado, mas houve erro ao baixar automaticamente. Use o botao "Baixar PDF Processado".'
+      })
     }
   }
 
   const handleDownloadPDF = async () => {
     if (!invoice.pdfPath) {
-      alert('PDF nao esta disponivel')
+      await feedback.info({
+        title: 'PDF indisponivel',
+        message: 'Este PDF ainda nao esta disponivel para download.'
+      })
       return
     }
 
@@ -241,7 +270,7 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
                   hidden
                 />
                 <p className="text-gray-500 text-xs mt-4">
-                  O PDF final sera montado como pagina original + pagina de descricao, repetindo esse padrao ate o fim.
+                  Para impressao duplex, a segunda pagina sera a descricao cadastrada. Em PDFs com varias paginas, esse padrao se repete.
                 </p>
               </div>
             ) : (
@@ -302,7 +331,7 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
               <div>
                 <h3 className="text-lg font-bold text-gray-800">PDF protegido por senha</h3>
                 <p className="text-sm text-gray-600">
-                  Informe a senha para gerar o PDF final alternando pagina original e pagina de descricao.
+                  Informe a senha para gerar o PDF final com a descricao na pagina seguinte, ideal para impressao duplex.
                 </p>
               </div>
             </div>
@@ -350,7 +379,7 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate, initialFile 
               <button
                 type="button"
                 onClick={handleUploadPDF}
-                disabled={loading || !password.trim()}
+                disabled={loading || password.length === 0}
                 className="flex-1 px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg transition font-semibold disabled:opacity-50"
               >
                 {loading ? 'Validando...' : 'Continuar'}

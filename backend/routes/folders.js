@@ -4,18 +4,25 @@ import { getDatabase } from '../database.js'
 
 const router = express.Router()
 
-// Listar pastas e faturas em um caminho
+function normalizeFolderName(name) {
+  return typeof name === 'string' ? name.trim() : ''
+}
+
+function buildFolderPath(parentPath, name) {
+  return parentPath === '/'
+    ? `/${name}`
+    : `${parentPath}/${name}`
+}
+
 router.get('/', async (req, res) => {
   try {
     const db = getDatabase()
     const { path: folderPath } = req.query
     const currentPath = folderPath || '/'
 
-    // Buscar pastas do caminho atual
     const folderStmt = db.prepare('SELECT * FROM folders WHERE parentPath = ? ORDER BY name')
     const folders = folderStmt.all(currentPath)
 
-    // Se não está na raiz, buscar a pasta para ter o ID
     let currentFolderId = null
     if (currentPath !== '/') {
       const currentFolderStmt = db.prepare('SELECT id FROM folders WHERE path = ?')
@@ -23,14 +30,12 @@ router.get('/', async (req, res) => {
       currentFolderId = currentFolder ? currentFolder.id : null
     }
 
-    // Buscar faturas da pasta atual
     const invoiceStmt = db.prepare('SELECT * FROM invoices WHERE folderId = ? ORDER BY createdAt DESC')
     const invoices = currentFolderId ? invoiceStmt.all(currentFolderId) : []
 
-    // Combinar pastas e faturas
     const result = [
-      ...folders.map(f => ({ ...f, type: 'folder' })),
-      ...invoices.map(i => ({ ...i, type: 'invoice' }))
+      ...folders.map((folder) => ({ ...folder, type: 'folder' })),
+      ...invoices.map((invoice) => ({ ...invoice, type: 'invoice' })),
     ]
 
     res.json(result)
@@ -40,30 +45,56 @@ router.get('/', async (req, res) => {
   }
 })
 
-// Criar nova pasta
+router.get('/details', async (req, res) => {
+  try {
+    const db = getDatabase()
+    const { path: folderPath } = req.query
+
+    if (!folderPath || folderPath === '/') {
+      return res.json(null)
+    }
+
+    const folder = db.prepare('SELECT * FROM folders WHERE path = ?').get(folderPath)
+
+    if (!folder) {
+      return res.status(404).json({ error: 'Pasta nao encontrada' })
+    }
+
+    res.json({ ...folder, type: 'folder' })
+  } catch (error) {
+    console.error('Erro ao buscar detalhes da pasta:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
 router.post('/', async (req, res) => {
   try {
     const db = getDatabase()
     const { name, parentPath } = req.body
+    const normalizedName = normalizeFolderName(name)
+    const currentParentPath = parentPath || '/'
 
-    if (!name || !name.trim()) {
-      return res.status(400).json({ error: 'Nome da pasta é obrigatório' })
+    if (!normalizedName) {
+      return res.status(400).json({ error: 'Nome da pasta e obrigatorio' })
     }
 
     const folderId = uuidv4()
-    const fullPath = parentPath === '/' 
-      ? `/${name}`
-      : `${parentPath}/${name}`
+    const fullPath = buildFolderPath(currentParentPath, normalizedName)
+    const existingFolder = db.prepare('SELECT id FROM folders WHERE path = ?').get(fullPath)
+
+    if (existingFolder) {
+      return res.status(409).json({ error: 'Ja existe uma pasta com esse nome neste local' })
+    }
 
     const stmt = db.prepare('INSERT INTO folders (id, name, path, parentPath) VALUES (?, ?, ?, ?)')
-    stmt.run(folderId, name, fullPath, parentPath)
+    stmt.run(folderId, normalizedName, fullPath, currentParentPath)
 
     res.json({
       id: folderId,
-      name,
+      name: normalizedName,
       path: fullPath,
-      parentPath,
-      type: 'folder'
+      parentPath: currentParentPath,
+      type: 'folder',
     })
   } catch (error) {
     console.error('Erro ao criar pasta:', error)
@@ -71,13 +102,95 @@ router.post('/', async (req, res) => {
   }
 })
 
-// Deletar pasta
+router.put('/:id', async (req, res) => {
+  try {
+    const db = getDatabase()
+    const { id } = req.params
+    const { name } = req.body
+    const normalizedName = normalizeFolderName(name)
+
+    if (!normalizedName) {
+      return res.status(400).json({ error: 'Nome da pasta e obrigatorio' })
+    }
+
+    const folder = db.prepare('SELECT * FROM folders WHERE id = ?').get(id)
+
+    if (!folder) {
+      return res.status(404).json({ error: 'Pasta nao encontrada' })
+    }
+
+    const newPath = buildFolderPath(folder.parentPath, normalizedName)
+
+    if (folder.name === normalizedName && folder.path === newPath) {
+      return res.json({ ...folder, type: 'folder' })
+    }
+
+    const conflictingFolder = db.prepare(`
+      SELECT id
+      FROM folders
+      WHERE (path = ? OR path LIKE ?)
+        AND NOT (path = ? OR path LIKE ?)
+      LIMIT 1
+    `).get(newPath, `${newPath}/%`, folder.path, `${folder.path}/%`)
+
+    if (conflictingFolder) {
+      return res.status(409).json({ error: 'Ja existe uma pasta com esse nome neste local' })
+    }
+
+    const renameFolderTree = db.transaction(() => {
+      db.prepare(`
+        UPDATE folders
+        SET path = CASE
+          WHEN path = ? THEN ?
+          ELSE replace(path, ?, ?)
+        END
+        WHERE path = ? OR path LIKE ?
+      `).run(
+        folder.path,
+        newPath,
+        `${folder.path}/`,
+        `${newPath}/`,
+        folder.path,
+        `${folder.path}/%`,
+      )
+
+      db.prepare(`
+        UPDATE folders
+        SET parentPath = CASE
+          WHEN id = ? THEN parentPath
+          WHEN parentPath = ? THEN ?
+          ELSE replace(parentPath, ?, ?)
+        END
+        WHERE id = ? OR parentPath = ? OR parentPath LIKE ?
+      `).run(
+        id,
+        folder.path,
+        newPath,
+        `${folder.path}/`,
+        `${newPath}/`,
+        id,
+        folder.path,
+        `${folder.path}/%`,
+      )
+
+      db.prepare('UPDATE folders SET name = ? WHERE id = ?').run(normalizedName, id)
+    })
+
+    renameFolderTree()
+
+    const updatedFolder = db.prepare('SELECT * FROM folders WHERE id = ?').get(id)
+    res.json({ ...updatedFolder, type: 'folder' })
+  } catch (error) {
+    console.error('Erro ao renomear pasta:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
 router.delete('/:id', async (req, res) => {
   try {
     const db = getDatabase()
     const { id } = req.params
 
-    // Deletar recursivamente (graças ao CASCADE)
     const stmt = db.prepare('DELETE FROM folders WHERE id = ?')
     stmt.run(id)
 

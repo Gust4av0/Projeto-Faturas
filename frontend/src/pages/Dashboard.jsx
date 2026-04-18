@@ -1,59 +1,90 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import FolderView from '../components/FolderView'
 import InvoiceView from '../components/InvoiceView'
 import axios from 'axios'
 import { API_ENDPOINTS } from '../config/api'
+import { useFeedback } from '../components/FeedbackProvider'
 
 export default function Dashboard() {
+  const feedback = useFeedback()
   const [folders, setFolders] = useState([])
+  const [currentFolder, setCurrentFolder] = useState(null)
   const [currentPath, setCurrentPath] = useState('/')
   const [loading, setLoading] = useState(true)
 
-  const fetchFolders = async () => {
+  const fetchFolders = useCallback(async () => {
     try {
       setLoading(true)
-      const response = await axios.get(API_ENDPOINTS.FOLDERS, {
+
+      const folderListRequest = axios.get(API_ENDPOINTS.FOLDERS, {
         params: { path: currentPath }
       })
-      setFolders(response.data)
+
+      const currentFolderRequest = currentPath === '/'
+        ? Promise.resolve({ data: null })
+        : axios.get(API_ENDPOINTS.FOLDER_DETAILS, {
+            params: { path: currentPath }
+          })
+
+      const [folderListResponse, currentFolderResponse] = await Promise.all([
+        folderListRequest,
+        currentFolderRequest
+      ])
+
+      setFolders(folderListResponse.data)
+      setCurrentFolder(currentFolderResponse.data)
     } catch (error) {
       console.error('Erro ao buscar pastas:', error)
       setFolders([])
+      setCurrentFolder(null)
+      await feedback.error({
+        title: 'Nao foi possivel carregar',
+        message: `O sistema nao conseguiu buscar as pastas agora.\n\n${error.response?.data?.error || error.message}`
+      })
     } finally {
       setLoading(false)
     }
-  }
+  }, [currentPath, feedback])
 
   useEffect(() => {
     fetchFolders()
-  }, [currentPath])
+  }, [fetchFolders])
 
   const handleCreateFolder = async (folderName) => {
-    try {
-      await axios.post(API_ENDPOINTS.FOLDER_CREATE, {
-        name: folderName,
-        parentPath: currentPath
-      })
-      fetchFolders()
-    } catch (error) {
-      console.error('Erro ao criar pasta:', error)
-      alert('Erro ao criar pasta')
+    const response = await axios.post(API_ENDPOINTS.FOLDER_CREATE, {
+      name: folderName,
+      parentPath: currentPath
+    })
+
+    await fetchFolders()
+    return response.data
+  }
+
+  const handleRenameFolder = async (folder, folderName) => {
+    const response = await axios.put(API_ENDPOINTS.FOLDER_UPDATE(folder.id), {
+      name: folderName
+    })
+
+    const updatedFolder = response.data
+
+    if (currentPath === folder.path) {
+      setCurrentPath(updatedFolder.path)
+      return updatedFolder
     }
+
+    if (currentPath.startsWith(`${folder.path}/`)) {
+      setCurrentPath(currentPath.replace(folder.path, updatedFolder.path))
+      return updatedFolder
+    }
+
+    await fetchFolders()
+    return updatedFolder
   }
 
   const handleDeleteFolder = async (folderId) => {
-    if (!window.confirm('Tem certeza que deseja deletar esta pasta?')) {
-      return
-    }
-
-    try {
-      await axios.delete(API_ENDPOINTS.FOLDER_DELETE(folderId))
-      fetchFolders()
-    } catch (error) {
-      console.error('Erro ao deletar pasta:', error)
-      alert('Erro ao deletar pasta')
-    }
+    await axios.delete(API_ENDPOINTS.FOLDER_DELETE(folderId))
+    await fetchFolders()
   }
 
   return (
@@ -64,9 +95,11 @@ export default function Dashboard() {
           element={
             <FolderView
               folders={folders}
+              currentFolder={currentFolder}
               currentPath={currentPath}
               setCurrentPath={setCurrentPath}
               onCreateFolder={handleCreateFolder}
+              onRenameFolder={handleRenameFolder}
               onDeleteFolder={handleDeleteFolder}
               onInvoiceCreated={fetchFolders}
               loading={loading}

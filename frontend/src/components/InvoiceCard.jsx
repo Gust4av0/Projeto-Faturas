@@ -2,8 +2,10 @@ import React, { useRef, useState } from 'react'
 import { Download, Trash2, FileText, Upload } from 'lucide-react'
 import axios from 'axios'
 import { API_ENDPOINTS } from '../config/api'
+import { useFeedback } from './FeedbackProvider'
 
 export default function InvoiceCard({ invoice, onDelete, onEdit, onFileSelect }) {
+  const feedback = useFeedback()
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef(null)
 
@@ -21,7 +23,10 @@ export default function InvoiceCard({ invoice, onDelete, onEdit, onFileSelect })
       link.remove()
     } catch (error) {
       console.error('Erro ao baixar PDF:', error)
-      alert('Erro ao baixar o PDF')
+      await feedback.error({
+        title: 'Erro ao baixar PDF',
+        message: error.response?.data?.error || error.message
+      })
     }
   }
 
@@ -31,7 +36,10 @@ export default function InvoiceCard({ invoice, onDelete, onEdit, onFileSelect })
     }
 
     if (file.type !== 'application/pdf') {
-      alert('Selecione um arquivo PDF')
+      void feedback.warning({
+        title: 'Arquivo invalido',
+        message: 'Selecione um arquivo PDF para continuar.'
+      })
       return
     }
 

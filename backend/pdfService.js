@@ -1,79 +1,106 @@
-import * as fs from 'fs'
-import path from 'path'
-import { fileURLToPath, pathToFileURL } from 'url'
-import { inspectProtectedPdf, renderProtectedPdfToDocument } from './pdfProtectedRenderer.js'
+import * as fs from "fs";
+import path from "path";
+import { fileURLToPath, pathToFileURL } from "url";
+import {
+  inspectProtectedPdf,
+  renderProtectedPdfToDocument,
+} from "./pdfProtectedRenderer.js";
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
-const runtimeRoot = path.resolve(__dirname, 'pdf-runtime', 'node_modules')
-const pdfLibModuleUrl = pathToFileURL(path.join(runtimeRoot, 'pdf-lib', 'cjs', 'index.js')).href
-const FONT_SIZE = 12
-const TITLE_SIZE = 16
-const LINE_HEIGHT = 18
-const MARGIN = 50
-const DESCRIPTION_TITLE = 'DESCRICAO DA FATURA'
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+function resolveRuntimePath(...segments) {
+  const candidates = [
+    path.join(__dirname, "pdf-runtime", "node_modules", ...segments),
+    path.join(__dirname, "node_modules", ...segments),
+  ];
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0];
+}
+
+const pdfLibModuleUrl = pathToFileURL(
+  resolveRuntimePath("pdf-lib", "cjs", "index.js"),
+).href;
+const FONT_SIZE = 12;
+const TITLE_SIZE = 16;
+const LINE_HEIGHT = 18;
+const MARGIN = 50;
+const SIGNATURE_Y = 130;
+const SIGNATURE_RESERVED_HEIGHT = 100;
+const DESCRIPTION_TITLE = "DESCRICAO DA FATURA";
+const SIGNATURE_LABEL = "Assinatura:_____________________";
 
 async function loadPdfLib() {
-  const pdfLib = await import(pdfLibModuleUrl)
+  const pdfLib = await import(pdfLibModuleUrl);
 
   return {
     PDFDocument: pdfLib.PDFDocument,
     StandardFonts: pdfLib.StandardFonts,
-    rgb: pdfLib.rgb
-  }
+    rgb: pdfLib.rgb,
+  };
 }
 
 function wrapText(text, maxWidth, font, fontSize) {
-  const words = text.split(/\s+/).filter(Boolean)
-  const lines = []
-  let currentLine = ''
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines = [];
+  let currentLine = "";
 
   for (const word of words) {
-    const nextLine = currentLine ? `${currentLine} ${word}` : word
+    const nextLine = currentLine ? `${currentLine} ${word}` : word;
     if (font.widthOfTextAtSize(nextLine, fontSize) <= maxWidth) {
-      currentLine = nextLine
-      continue
+      currentLine = nextLine;
+      continue;
     }
 
     if (currentLine) {
-      lines.push(currentLine)
+      lines.push(currentLine);
     }
-    currentLine = word
+    currentLine = word;
   }
 
   if (currentLine) {
-    lines.push(currentLine)
+    lines.push(currentLine);
   }
 
-  return lines.length > 0 ? lines : ['']
+  return lines.length > 0 ? lines : [""];
 }
 
 function addDescriptionPage(pdfDoc, description, font, referencePage, rgb) {
-  const page = pdfDoc.addPage(referencePage ? [referencePage.getWidth(), referencePage.getHeight()] : undefined)
-  const { width, height } = page.getSize()
+  const page = pdfDoc.addPage(
+    referencePage
+      ? [referencePage.getWidth(), referencePage.getHeight()]
+      : undefined,
+  );
+  const { width, height } = page.getSize();
 
   page.drawRectangle({
     x: 0,
     y: 0,
     width,
     height,
-    color: rgb(1, 1, 1)
-  })
+    color: rgb(1, 1, 1),
+  });
 
   page.drawText(DESCRIPTION_TITLE, {
     x: MARGIN,
     y: height - 60,
     size: TITLE_SIZE,
     font,
-    color: rgb(0.1, 0.35, 0.7)
-  })
+    color: rgb(0.1, 0.35, 0.7),
+  });
 
-  const wrappedLines = wrapText(description || '', width - (MARGIN * 2), font, FONT_SIZE)
-  let yPosition = height - 110
+  const wrappedLines = wrapText(
+    description || "",
+    width - MARGIN * 2,
+    font,
+    FONT_SIZE,
+  );
+  let yPosition = height - 110;
+  const minimumTextY = SIGNATURE_Y + SIGNATURE_RESERVED_HEIGHT;
 
   for (const line of wrappedLines) {
-    if (yPosition < MARGIN) {
-      break
+    if (yPosition < minimumTextY) {
+      break;
     }
 
     page.drawText(line, {
@@ -81,137 +108,207 @@ function addDescriptionPage(pdfDoc, description, font, referencePage, rgb) {
       y: yPosition,
       size: FONT_SIZE,
       font,
-      color: rgb(0.2, 0.2, 0.2)
-    })
+      color: rgb(0.2, 0.2, 0.2),
+    });
 
-    yPosition -= LINE_HEIGHT
+    yPosition -= LINE_HEIGHT;
   }
+
+  page.drawText(SIGNATURE_LABEL, {
+    x: MARGIN,
+    y: SIGNATURE_Y,
+    size: FONT_SIZE,
+    font,
+    color: rgb(0.2, 0.2, 0.2),
+  });
 }
 
 async function canLoadPdfWithoutPassword(pdfPath) {
   try {
-    const { PDFDocument } = await loadPdfLib()
-    const pdfBytes = fs.readFileSync(pdfPath)
-    await PDFDocument.load(pdfBytes)
-    return true
+    const { PDFDocument } = await loadPdfLib();
+    const pdfBytes = fs.readFileSync(pdfPath);
+    await PDFDocument.load(pdfBytes);
+    return true;
   } catch (error) {
-    return false
+    // Fallback do pdf-lib para confirmar se o arquivo abre normalmente sem senha.
+    console.log(
+      `[canLoadPdfWithoutPassword] Erro ao carregar ${pdfPath}: ${error.message}`,
+    );
+    return false;
   }
 }
 
 export async function inspectPdfProtection(pdfPath) {
-  const openedWithoutPassword = await canLoadPdfWithoutPassword(pdfPath)
+  console.log(`[inspectPdfProtection] Verificando proteção de: ${pdfPath}`);
 
-  if (openedWithoutPassword) {
-    return {
+  try {
+    await inspectProtectedPdf(pdfPath);
+
+    const result = {
       encrypted: false,
       passwordRequired: false,
-      passwordValid: true
-    }
-  }
+    };
 
-  return {
-    encrypted: true,
-    passwordRequired: true,
-    passwordValid: false,
-    requiresProtectedRenderer: true
+    console.log(
+      `[inspectPdfProtection] Resultado: ${JSON.stringify(result)}`,
+    );
+
+    return result;
+  } catch (error) {
+    if (error.code === "PASSWORD_REQUIRED") {
+      const result = {
+        encrypted: true,
+        passwordRequired: true,
+      };
+
+      console.log(
+        `[inspectPdfProtection] Resultado: ${JSON.stringify(result)}`,
+      );
+
+      return result;
+    }
+
+    const canLoad = await canLoadPdfWithoutPassword(pdfPath);
+    if (canLoad) {
+      console.log(
+        "[inspectPdfProtection] pdfjs falhou, mas pdf-lib abriu o arquivo sem senha. Mantendo fluxo sem senha.",
+      );
+
+      const result = {
+        encrypted: false,
+        passwordRequired: false,
+      };
+
+      console.log(
+        `[inspectPdfProtection] Resultado: ${JSON.stringify(result)}`,
+      );
+
+      return result;
+    }
+
+    throw error;
   }
 }
 
 export async function decryptPdfIfNeeded(originalPdfPath, password = null) {
+  console.log(
+    `[decryptPdfIfNeeded] Iniciando para: ${originalPdfPath}, password: ${password ? "sim" : "não"}`,
+  );
+
+  const inspection = await inspectPdfProtection(originalPdfPath);
+  console.log(`[decryptPdfIfNeeded] Inspeção: ${JSON.stringify(inspection)}`);
+
+  if (!inspection.encrypted) {
+    console.log(
+      "[decryptPdfIfNeeded] PDF não criptografado, retornando caminho",
+    );
+    return {
+      pdfPath: originalPdfPath,
+      encrypted: false,
+      cleanup: null,
+    };
+  }
+
   if (password) {
+    console.log(
+      "[decryptPdfIfNeeded] PDF criptografado com senha fornecida, usando protectedRenderer",
+    );
     return {
       pdfPath: originalPdfPath,
       encrypted: true,
       cleanup: null,
-      useProtectedRenderer: true
-    }
+      useProtectedRenderer: true,
+    };
   }
 
-  const inspection = await inspectPdfProtection(originalPdfPath)
-
-  if (!inspection.encrypted) {
-    return {
-      pdfPath: originalPdfPath,
-      encrypted: false,
-      cleanup: null
-    }
-  }
-
-  const error = new Error('PDF protegido por senha')
-  error.code = 'PASSWORD_REQUIRED'
-  throw error
+  console.log(
+    "[decryptPdfIfNeeded] PDF criptografado detectado sem senha, lançando erro PASSWORD_REQUIRED",
+  );
+  const error = new Error("PDF protegido por senha");
+  error.code = "PASSWORD_REQUIRED";
+  throw error;
 }
 
-export async function mergePDFWithDescription(originalPdfPath, description, password = null) {
-  let preparedPdf = null
+export async function mergePDFWithDescription(
+  originalPdfPath,
+  description,
+  password = null,
+) {
+  let preparedPdf = null;
 
   try {
-    preparedPdf = await decryptPdfIfNeeded(originalPdfPath, password)
+    preparedPdf = await decryptPdfIfNeeded(originalPdfPath, password);
 
     if (preparedPdf.useProtectedRenderer) {
-      return await renderProtectedPdfToDocument(originalPdfPath, description, password)
+      return await renderProtectedPdfToDocument(
+        originalPdfPath,
+        description,
+        password,
+      );
     }
 
-    const { PDFDocument, StandardFonts, rgb } = await loadPdfLib()
-    const pdfBytes = fs.readFileSync(preparedPdf.pdfPath)
-    const sourcePdf = await PDFDocument.load(pdfBytes)
-    const newPdf = await PDFDocument.create()
-    const font = await newPdf.embedFont(StandardFonts.Helvetica)
-    const pageCount = sourcePdf.getPageCount()
-    const shouldInsertDescription = Boolean(description && description.trim())
+    const { PDFDocument, StandardFonts, rgb } = await loadPdfLib();
+    const pdfBytes = fs.readFileSync(preparedPdf.pdfPath);
+    const sourcePdf = await PDFDocument.load(pdfBytes);
+    const newPdf = await PDFDocument.create();
+    const font = await newPdf.embedFont(StandardFonts.Helvetica);
+    const pageCount = sourcePdf.getPageCount();
+    const shouldInsertDescription = Boolean(description && description.trim());
 
     for (let index = 0; index < pageCount; index += 1) {
-      const [copiedPage] = await newPdf.copyPages(sourcePdf, [index])
-      newPdf.addPage(copiedPage)
+      const [copiedPage] = await newPdf.copyPages(sourcePdf, [index]);
+      newPdf.addPage(copiedPage);
 
       if (shouldInsertDescription) {
-        addDescriptionPage(newPdf, description.trim(), font, copiedPage, rgb)
+        addDescriptionPage(newPdf, description.trim(), font, copiedPage, rgb);
       }
     }
 
-    return newPdf
+    return newPdf;
   } catch (error) {
     if (!error.code) {
-      error.code = 'PDF_PROCESSING_ERROR'
+      error.code = "PDF_PROCESSING_ERROR";
     }
-    throw error
+    throw error;
   } finally {
     if (preparedPdf?.cleanup) {
-      preparedPdf.cleanup()
+      preparedPdf.cleanup();
     }
   }
 }
 
 export async function savePDF(pdfDoc, outputPath) {
-  const pdfBytes = await pdfDoc.save()
-  fs.writeFileSync(outputPath, pdfBytes)
-  return outputPath
+  const pdfBytes = await pdfDoc.save();
+  fs.writeFileSync(outputPath, pdfBytes);
+  return outputPath;
 }
 
 export async function extractPdfInfo(pdfPath, password = null) {
-  let preparedPdf = null
+  let preparedPdf = null;
 
   try {
-    preparedPdf = await decryptPdfIfNeeded(pdfPath, password)
+    preparedPdf = await decryptPdfIfNeeded(pdfPath, password);
 
     if (preparedPdf.useProtectedRenderer) {
-      return await inspectProtectedPdf(pdfPath, password)
+      return await inspectProtectedPdf(pdfPath, password);
     }
 
-    const { PDFDocument } = await loadPdfLib()
-    const pdfBuffer = fs.readFileSync(preparedPdf.pdfPath)
-    const pdf = await PDFDocument.load(pdfBuffer)
+    const { PDFDocument } = await loadPdfLib();
+    const pdfBuffer = fs.readFileSync(preparedPdf.pdfPath);
+    const pdf = await PDFDocument.load(pdfBuffer);
 
     return {
       pages: pdf.getPageCount(),
       hasText: true,
       success: true,
-      encrypted: preparedPdf.encrypted
-    }
+      encrypted: preparedPdf.encrypted,
+    };
   } catch (error) {
-    if (error.code === 'PASSWORD_REQUIRED' || error.code === 'INVALID_PDF_PASSWORD') {
-      throw error
+    if (
+      error.code === "PASSWORD_REQUIRED" ||
+      error.code === "INVALID_PDF_PASSWORD"
+    ) {
+      throw error;
     }
 
     return {
@@ -219,11 +316,11 @@ export async function extractPdfInfo(pdfPath, password = null) {
       hasText: false,
       success: false,
       encrypted: false,
-      error: error.message
-    }
+      error: error.message,
+    };
   } finally {
     if (preparedPdf?.cleanup) {
-      preparedPdf.cleanup()
+      preparedPdf.cleanup();
     }
   }
 }

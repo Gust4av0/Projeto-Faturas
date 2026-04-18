@@ -1,15 +1,15 @@
-import React from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Upload, FolderOpen, FileText, Zap } from 'lucide-react'
+import React from "react";
+import { useNavigate } from "react-router-dom";
+import { Upload, FolderOpen, FileText, Zap } from "lucide-react";
 
 export default function LandingPage() {
-  const navigate = useNavigate()
+  const navigate = useNavigate();
 
   const handleGetStarted = () => {
-    localStorage.setItem('userToken', 'demo-token')
-    navigate('/dashboard')
-    window.location.reload()
-  }
+    localStorage.setItem("userToken", "demo-token");
+    navigate("/dashboard");
+    window.location.reload();
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700">
@@ -17,7 +17,7 @@ export default function LandingPage() {
       <nav className="flex justify-between items-center px-8 py-6 bg-white/10 backdrop-blur-md">
         <div className="text-3xl font-bold text-white flex items-center gap-2">
           <FileText className="w-8 h-8" />
-          Invoice Manager
+          Gestor de Faturas
         </div>
         <button
           onClick={handleGetStarted}
@@ -33,7 +33,8 @@ export default function LandingPage() {
           Organize suas Faturas de Forma Inteligente
         </h1>
         <p className="text-2xl mb-12 text-gray-100 max-w-3xl mx-auto">
-          Importe PDFs de faturas, adicione descrições e gere boletos com informações personalizadas automaticamente
+          Importe PDFs de faturas, adicione descrições e gere boletos com
+          informações personalizadas automaticamente
         </p>
 
         {/* Features Grid */}
@@ -41,19 +42,28 @@ export default function LandingPage() {
           <div className="bg-white/10 backdrop-blur-md rounded-xl p-8 hover:bg-white/20 transition">
             <FolderOpen className="w-12 h-12 mx-auto mb-4 text-yellow-300" />
             <h3 className="text-xl font-bold mb-3">Pastas Organizadas</h3>
-            <p className="text-gray-100">Crie pastas e subpastas para organizar suas faturas de forma intuitiva</p>
+            <p className="text-gray-100">
+              Crie pastas e subpastas para organizar suas faturas de forma
+              intuitiva
+            </p>
           </div>
 
           <div className="bg-white/10 backdrop-blur-md rounded-xl p-8 hover:bg-white/20 transition">
             <Upload className="w-12 h-12 mx-auto mb-4 text-green-300" />
             <h3 className="text-xl font-bold mb-3">Importar/Arrastar</h3>
-            <p className="text-gray-100">Importe PDFs ou arraste diretamente para a pasta. Suporta PDFs com senha!</p>
+            <p className="text-gray-100">
+              Importe PDFs ou arraste diretamente para a pasta. Suporta PDFs com
+              senha!
+            </p>
           </div>
 
           <div className="bg-white/10 backdrop-blur-md rounded-xl p-8 hover:bg-white/20 transition">
             <Zap className="w-12 h-12 mx-auto mb-4 text-pink-300" />
             <h3 className="text-xl font-bold mb-3">Geração Automática</h3>
-            <p className="text-gray-100">Crie faturas com descrição e gere PDFs prontos para imprimir automaticamente</p>
+            <p className="text-gray-100">
+              Crie faturas com descrição e gere PDFs prontos para imprimir
+              automaticamente
+            </p>
           </div>
         </div>
 
@@ -66,28 +76,36 @@ export default function LandingPage() {
                 1
               </div>
               <h4 className="font-bold mb-2">Crie uma Pasta</h4>
-              <p className="text-gray-100 text-sm">Organize suas faturas em categorias</p>
+              <p className="text-gray-100 text-sm">
+                Organize suas faturas em categorias
+              </p>
             </div>
             <div>
               <div className="bg-blue-500 text-white rounded-full w-10 h-10 flex items-center justify-center font-bold mb-4">
                 2
               </div>
               <h4 className="font-bold mb-2">Cadastre a Fatura</h4>
-              <p className="text-gray-100 text-sm">Adicione título e descrição da nota</p>
+              <p className="text-gray-100 text-sm">
+                Adicione título e descrição da nota
+              </p>
             </div>
             <div>
               <div className="bg-blue-500 text-white rounded-full w-10 h-10 flex items-center justify-center font-bold mb-4">
                 3
               </div>
               <h4 className="font-bold mb-2">Importe o PDF</h4>
-              <p className="text-gray-100 text-sm">Arraste ou importe o boleto/nota</p>
+              <p className="text-gray-100 text-sm">
+                Arraste ou importe o boleto/nota
+              </p>
             </div>
             <div>
               <div className="bg-blue-500 text-white rounded-full w-10 h-10 flex items-center justify-center font-bold mb-4">
                 4
               </div>
               <h4 className="font-bold mb-2">Baixe Pronto</h4>
-              <p className="text-gray-100 text-sm">PDF gerado com boleto + descrição</p>
+              <p className="text-gray-100 text-sm">
+                PDF gerado com boleto + descrição
+              </p>
             </div>
           </div>
         </div>
@@ -103,8 +121,9 @@ export default function LandingPage() {
 
       {/* Footer */}
       <footer className="border-t border-white/20 mt-20 py-8 text-center text-gray-200">
-        <p>&copy; 2026 Invoice Manager. Todos os direitos reservados.</p>
+        <p>&copy; 2026 Gestor de Faturas. Todos os direitos reservados.</p>
+        <p>Desenvolvido por: Gustavo Marcolin Soares</p>
       </footer>
     </div>
-  )
+  );
 }

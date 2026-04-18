@@ -1,22 +1,22 @@
-import React from 'react'
-import { useNavigate } from 'react-router-dom'
-import { FileText, LogOut } from 'lucide-react'
+import React from "react";
+import { useNavigate } from "react-router-dom";
+import { FileText, LogOut } from "lucide-react";
 
 export default function Navbar({ setIsLoggedIn }) {
-  const navigate = useNavigate()
+  const navigate = useNavigate();
 
   const handleLogout = () => {
-    localStorage.removeItem('userToken')
-    setIsLoggedIn(false)
-    navigate('/')
-  }
+    localStorage.removeItem("userToken");
+    setIsLoggedIn(false);
+    navigate("/");
+  };
 
   return (
     <nav className="bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg">
       <div className="max-w-7xl mx-auto px-8 py-4 flex justify-between items-center">
         <div className="text-2xl font-bold flex items-center gap-2">
           <FileText className="w-7 h-7" />
-          Invoice Manager
+          Gestor de Faturas
         </div>
         <button
           onClick={handleLogout}
@@ -27,5 +27,5 @@ export default function Navbar({ setIsLoggedIn }) {
         </button>
       </div>
     </nav>
-  )
+  );
 }

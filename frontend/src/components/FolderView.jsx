@@ -1,19 +1,23 @@
-import React, { useState } from 'react'
-import { Plus, FolderPlus, ChevronRight, Trash2 } from 'lucide-react'
+import React, { useMemo, useState } from 'react'
+import { ArrowLeft, ChevronRight, Folder, FolderPlus, Pencil, Plus, Trash2 } from 'lucide-react'
 import InvoiceCard from './InvoiceCard'
 import InvoiceDetail from './InvoiceDetail'
 import axios from 'axios'
 import { API_ENDPOINTS } from '../config/api'
+import { useFeedback } from './FeedbackProvider'
 
 export default function FolderView({
   folders,
+  currentFolder,
   currentPath,
   setCurrentPath,
   onCreateFolder,
+  onRenameFolder,
   onDeleteFolder,
   loading,
   onInvoiceCreated
 }) {
+  const feedback = useFeedback()
   const [newFolderName, setNewFolderName] = useState('')
   const [showNewFolderInput, setShowNewFolderInput] = useState(false)
   const [showNewInvoiceForm, setShowNewInvoiceForm] = useState(false)
@@ -22,15 +26,102 @@ export default function FolderView({
   const [invoiceDescription, setInvoiceDescription] = useState('')
   const [invoiceLoading, setInvoiceLoading] = useState(false)
   const [initialUploadFile, setInitialUploadFile] = useState(null)
+  const [folderBeingRenamed, setFolderBeingRenamed] = useState(null)
+  const [renameFolderName, setRenameFolderName] = useState('')
+  const [renameFolderLoading, setRenameFolderLoading] = useState(false)
 
-  const handleCreateFolder = () => {
+  const pathParts = useMemo(() => currentPath.split('/').filter(Boolean), [currentPath])
+
+  const handleCreateFolder = async () => {
     if (!newFolderName.trim()) {
+      await feedback.warning({
+        title: 'Nome obrigatorio',
+        message: 'Digite um nome para criar a pasta.'
+      })
       return
     }
 
-    onCreateFolder(newFolderName)
-    setNewFolderName('')
-    setShowNewFolderInput(false)
+    try {
+      await onCreateFolder(newFolderName)
+      setNewFolderName('')
+      setShowNewFolderInput(false)
+      await feedback.success({
+        title: 'Pasta criada',
+        message: 'A pasta foi criada com sucesso.'
+      })
+    } catch (error) {
+      console.error('Erro ao criar pasta:', error)
+      await feedback.error({
+        title: 'Erro ao criar pasta',
+        message: error.response?.data?.error || error.message
+      })
+    }
+  }
+
+  const handleStartRenameFolder = (folder) => {
+    setFolderBeingRenamed(folder)
+    setRenameFolderName(folder.name)
+  }
+
+  const handleRenameFolder = async () => {
+    if (!folderBeingRenamed) {
+      return
+    }
+
+    if (!renameFolderName.trim()) {
+      await feedback.warning({
+        title: 'Nome obrigatorio',
+        message: 'Digite um nome para renomear a pasta.'
+      })
+      return
+    }
+
+    try {
+      setRenameFolderLoading(true)
+      await onRenameFolder(folderBeingRenamed, renameFolderName)
+      setFolderBeingRenamed(null)
+      setRenameFolderName('')
+      await feedback.success({
+        title: 'Pasta atualizada',
+        message: 'O nome da pasta foi alterado com sucesso.'
+      })
+    } catch (error) {
+      console.error('Erro ao renomear pasta:', error)
+      await feedback.error({
+        title: 'Erro ao renomear pasta',
+        message: error.response?.data?.error || error.message
+      })
+    } finally {
+      setRenameFolderLoading(false)
+    }
+  }
+
+  const handleDeleteFolder = async (folder) => {
+    const confirmed = await feedback.confirm({
+      title: 'Excluir pasta',
+      message: `Tem certeza que deseja excluir a pasta "${folder.name}"?\n\nAs subpastas e faturas dentro dela tambem serao removidas.`,
+      confirmText: 'Excluir',
+      cancelText: 'Cancelar',
+      variant: 'warning'
+    })
+
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      await onDeleteFolder(folder.id)
+      await feedback.success({
+        title: 'Pasta excluida',
+        message: 'A pasta foi removida com sucesso.'
+      })
+    } catch (error) {
+      console.error('Erro ao deletar pasta:', error)
+      await feedback.error({
+        title: 'Erro ao excluir pasta',
+        message: error.response?.data?.error || error.message
+      })
+    }
   }
 
   const handleNavigateFolder = (folder) => {
@@ -38,14 +129,16 @@ export default function FolderView({
   }
 
   const handleBackFolder = () => {
-    const pathParts = currentPath.split('/').filter(Boolean)
     const newPath = '/' + pathParts.slice(0, -1).join('/')
     setCurrentPath(newPath === '/' ? '/' : newPath)
   }
 
   const handleCreateInvoice = async () => {
     if (!invoiceTitle.trim()) {
-      alert('Titulo e obrigatorio')
+      await feedback.warning({
+        title: 'Titulo obrigatorio',
+        message: 'Preencha o titulo da fatura para continuar.'
+      })
       return
     }
 
@@ -57,21 +150,35 @@ export default function FolderView({
         folderPath: currentPath
       })
 
-      alert('Fatura criada com sucesso!')
       setInvoiceTitle('')
       setInvoiceDescription('')
       setShowNewInvoiceForm(false)
-      onInvoiceCreated?.(response.data)
+      await onInvoiceCreated?.(response.data)
+      await feedback.success({
+        title: 'Fatura criada',
+        message: 'A fatura foi criada com sucesso.'
+      })
     } catch (error) {
       console.error('Erro ao criar fatura:', error)
-      alert(`Erro ao criar fatura: ${error.response?.data?.error || error.message}`)
+      await feedback.error({
+        title: 'Erro ao criar fatura',
+        message: error.response?.data?.error || error.message
+      })
     } finally {
       setInvoiceLoading(false)
     }
   }
 
   const handleDeleteInvoice = async (invoiceId) => {
-    if (!window.confirm('Tem certeza que deseja deletar esta fatura?')) {
+    const confirmed = await feedback.confirm({
+      title: 'Excluir fatura',
+      message: 'Tem certeza que deseja excluir esta fatura?',
+      confirmText: 'Excluir',
+      cancelText: 'Cancelar',
+      variant: 'warning'
+    })
+
+    if (!confirmed) {
       return
     }
 
@@ -80,10 +187,13 @@ export default function FolderView({
       if (selectedInvoice?.id === invoiceId) {
         setSelectedInvoice(null)
       }
-      onInvoiceCreated?.()
+      await onInvoiceCreated?.()
     } catch (error) {
       console.error('Erro ao deletar fatura:', error)
-      alert('Erro ao deletar fatura')
+      await feedback.error({
+        title: 'Erro ao excluir fatura',
+        message: error.response?.data?.error || error.message
+      })
     }
   }
 
@@ -94,69 +204,87 @@ export default function FolderView({
 
   return (
     <div className="max-w-7xl mx-auto px-8 py-12">
-      <div className="flex items-center gap-2 mb-8 text-sm">
+      <div className="mb-8 flex flex-wrap items-center gap-2 text-sm">
         <span
           onClick={() => setCurrentPath('/')}
-          className="text-blue-600 cursor-pointer hover:underline font-semibold"
+          className="cursor-pointer font-semibold text-blue-600 hover:underline"
         >
           Raiz
         </span>
-        {currentPath !== '/' && (
-          <>
-            {currentPath.split('/').filter(Boolean).map((part, idx) => (
-              <React.Fragment key={idx}>
-                <ChevronRight className="w-4 h-4 text-gray-400" />
-                <span className="text-gray-600">{part}</span>
-              </React.Fragment>
-            ))}
-          </>
-        )}
+
+        {currentPath !== '/' && pathParts.map((part, index) => (
+          <React.Fragment key={`${part}-${index}`}>
+            <ChevronRight className="h-4 w-4 text-gray-400" />
+            <span className="text-gray-600">{part}</span>
+          </React.Fragment>
+        ))}
       </div>
 
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-800">Minhas Faturas</h1>
-        <div className="flex gap-4">
+      <div className="mb-8 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-800">Minhas Faturas</h1>
+          <p className="mt-2 text-sm text-gray-500">
+            {currentFolder
+              ? `Pasta atual: ${currentFolder.name}`
+              : 'Organize suas pastas, subpastas e faturas em um so lugar.'}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-3">
           {currentPath !== '/' && (
             <>
               <button
                 onClick={() => setShowNewInvoiceForm(true)}
-                className="flex items-center gap-2 px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition font-semibold"
+                className="flex items-center gap-2 rounded-xl bg-green-600 px-5 py-2.5 font-semibold text-white transition hover:bg-green-700"
               >
-                <Plus className="w-5 h-5" />
+                <Plus className="h-5 w-5" />
                 Nova Fatura
               </button>
+
+              {currentFolder && (
+                <button
+                  onClick={() => handleStartRenameFolder(currentFolder)}
+                  className="flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 font-semibold text-white transition hover:bg-amber-600"
+                >
+                  <Pencil className="h-5 w-5" />
+                  Renomear Pasta
+                </button>
+              )}
+
               <button
                 onClick={handleBackFolder}
-                className="px-4 py-2 bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-lg transition font-semibold"
+                className="flex items-center gap-2 rounded-xl bg-gray-300 px-5 py-2.5 font-semibold text-gray-800 transition hover:bg-gray-400"
               >
-                ← Voltar
+                <ArrowLeft className="h-5 w-5" />
+                Voltar
               </button>
             </>
           )}
+
           <button
             onClick={() => setShowNewFolderInput(true)}
-            className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition font-semibold"
+            className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 font-semibold text-white transition hover:bg-blue-700"
           >
-            <FolderPlus className="w-5 h-5" />
+            <FolderPlus className="h-5 w-5" />
             Nova Pasta
           </button>
         </div>
       </div>
 
       {showNewFolderInput && (
-        <div className="bg-white p-6 rounded-lg shadow-md mb-8 flex gap-4">
+        <div className="mb-8 flex gap-4 rounded-2xl bg-white p-6 shadow-md">
           <input
             type="text"
             placeholder="Nome da pasta"
             value={newFolderName}
             onChange={(event) => setNewFolderName(event.target.value)}
             onKeyDown={(event) => event.key === 'Enter' && handleCreateFolder()}
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+            className="flex-1 rounded-xl border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-600"
             autoFocus
           />
           <button
             onClick={handleCreateFolder}
-            className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition font-semibold"
+            className="rounded-xl bg-green-600 px-6 py-2.5 font-semibold text-white transition hover:bg-green-700"
           >
             Criar
           </button>
@@ -165,7 +293,7 @@ export default function FolderView({
               setShowNewFolderInput(false)
               setNewFolderName('')
             }}
-            className="px-6 py-2 bg-gray-400 hover:bg-gray-500 text-white rounded-lg transition font-semibold"
+            className="rounded-xl bg-gray-400 px-6 py-2.5 font-semibold text-white transition hover:bg-gray-500"
           >
             Cancelar
           </button>
@@ -173,30 +301,30 @@ export default function FolderView({
       )}
 
       {showNewInvoiceForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full mx-4">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">Nova Fatura</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-lg">
+            <h2 className="mb-6 text-2xl font-bold text-gray-800">Nova Fatura</h2>
 
             <div className="mb-4">
-              <label className="block text-gray-700 font-semibold mb-2">Titulo *</label>
+              <label className="mb-2 block font-semibold text-gray-700">Titulo *</label>
               <input
                 type="text"
                 placeholder="Ex: Fatura Claro - Marco"
                 value={invoiceTitle}
                 onChange={(event) => setInvoiceTitle(event.target.value)}
                 onKeyDown={(event) => event.key === 'Enter' && handleCreateInvoice()}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-600"
+                className="w-full rounded-xl border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-600"
                 autoFocus
               />
             </div>
 
             <div className="mb-6">
-              <label className="block text-gray-700 font-semibold mb-2">Descricao</label>
+              <label className="mb-2 block font-semibold text-gray-700">Descricao</label>
               <textarea
                 placeholder="Ex: Conta telefonica do mes..."
                 value={invoiceDescription}
                 onChange={(event) => setInvoiceDescription(event.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-600 resize-none"
+                className="w-full resize-none rounded-xl border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-600"
                 rows="4"
               />
             </div>
@@ -205,7 +333,7 @@ export default function FolderView({
               <button
                 onClick={handleCreateInvoice}
                 disabled={invoiceLoading}
-                className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition font-semibold disabled:opacity-50"
+                className="flex-1 rounded-xl bg-green-600 px-4 py-2.5 font-semibold text-white transition hover:bg-green-700 disabled:opacity-50"
               >
                 {invoiceLoading ? 'Criando...' : 'Criar Fatura'}
               </button>
@@ -215,7 +343,49 @@ export default function FolderView({
                   setInvoiceTitle('')
                   setInvoiceDescription('')
                 }}
-                className="flex-1 px-4 py-2 bg-gray-400 hover:bg-gray-500 text-white rounded-lg transition font-semibold"
+                className="flex-1 rounded-xl bg-gray-400 px-4 py-2.5 font-semibold text-white transition hover:bg-gray-500"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {folderBeingRenamed && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-lg">
+            <h2 className="text-2xl font-bold text-gray-800">Renomear Pasta</h2>
+            <p className="mt-2 text-sm leading-6 text-gray-500">
+              Atualize o nome da pasta sem perder a estrutura das subpastas e das faturas.
+            </p>
+
+            <div className="mt-6">
+              <label className="mb-2 block font-semibold text-gray-700">Novo nome</label>
+              <input
+                type="text"
+                value={renameFolderName}
+                onChange={(event) => setRenameFolderName(event.target.value)}
+                onKeyDown={(event) => event.key === 'Enter' && handleRenameFolder()}
+                className="w-full rounded-xl border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                autoFocus
+              />
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={handleRenameFolder}
+                disabled={renameFolderLoading}
+                className="flex-1 rounded-xl bg-amber-500 px-4 py-2.5 font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50"
+              >
+                {renameFolderLoading ? 'Salvando...' : 'Salvar Alteracao'}
+              </button>
+              <button
+                onClick={() => {
+                  setFolderBeingRenamed(null)
+                  setRenameFolderName('')
+                }}
+                className="flex-1 rounded-xl bg-gray-400 px-4 py-2.5 font-semibold text-white transition hover:bg-gray-500"
               >
                 Cancelar
               </button>
@@ -232,42 +402,57 @@ export default function FolderView({
             setSelectedInvoice(null)
             setInitialUploadFile(null)
           }}
-          onUpdate={(updatedInvoice) => {
+          onUpdate={async (updatedInvoice) => {
             setSelectedInvoice(updatedInvoice)
             setInitialUploadFile(null)
-            onInvoiceCreated?.(updatedInvoice)
+            await onInvoiceCreated?.(updatedInvoice)
           }}
         />
       )}
 
       {loading ? (
-        <div className="text-center py-12">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          <p className="text-gray-600 mt-4">Carregando...</p>
+        <div className="py-12 text-center">
+          <div className="inline-block h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600" />
+          <p className="mt-4 text-gray-600">Carregando...</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
           {folders.filter((item) => item.type === 'folder').map((folder) => (
             <div
               key={folder.id}
-              className="bg-white rounded-lg shadow-md hover:shadow-lg transition cursor-pointer group"
+              className="group overflow-hidden rounded-2xl bg-white shadow-md transition hover:-translate-y-1 hover:shadow-xl"
             >
               <div
                 onClick={() => handleNavigateFolder(folder)}
-                className="p-6 flex flex-col items-center justify-center h-32 group-hover:bg-blue-50 transition"
+                className="flex h-40 cursor-pointer flex-col items-center justify-center bg-gradient-to-br from-white to-amber-50 px-6 text-center transition group-hover:from-amber-50 group-hover:to-orange-50"
               >
-                <div className="text-5xl mb-2">📁</div>
-                <p className="font-semibold text-gray-800 text-center truncate w-full">{folder.name}</p>
+                <div className="mb-4 rounded-3xl bg-amber-100 p-4 text-amber-500">
+                  <Folder className="h-10 w-10" />
+                </div>
+                <p className="w-full truncate font-semibold text-gray-800">{folder.name}</p>
+                <p className="mt-1 text-xs uppercase tracking-[0.2em] text-gray-400">Pasta</p>
               </div>
-              <div className="border-t p-3 flex justify-end">
+
+              <div className="flex justify-end gap-2 border-t px-3 py-3">
                 <button
                   onClick={(event) => {
                     event.stopPropagation()
-                    onDeleteFolder(folder.id)
+                    handleStartRenameFolder(folder)
                   }}
-                  className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
+                  className="rounded-xl p-2 text-amber-600 transition hover:bg-amber-50"
+                  title="Renomear pasta"
                 >
-                  <Trash2 className="w-5 h-5" />
+                  <Pencil className="h-5 w-5" />
+                </button>
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    handleDeleteFolder(folder)
+                  }}
+                  className="rounded-xl p-2 text-red-500 transition hover:bg-red-50"
+                  title="Excluir pasta"
+                >
+                  <Trash2 className="h-5 w-5" />
                 </button>
               </div>
             </div>
@@ -286,9 +471,9 @@ export default function FolderView({
       )}
 
       {!loading && folders.length === 0 && (
-        <div className="text-center py-20">
-          <div className="text-6xl mb-4">🧾</div>
-          <h2 className="text-2xl font-semibold text-gray-600 mb-2">Nenhuma pasta ou fatura ainda</h2>
+        <div className="py-20 text-center">
+          <div className="mb-4 text-6xl">🧾</div>
+          <h2 className="mb-2 text-2xl font-semibold text-gray-600">Nenhuma pasta ou fatura ainda</h2>
           <p className="text-gray-500">Crie uma nova pasta para comecar a organizar suas faturas</p>
         </div>
       )}
