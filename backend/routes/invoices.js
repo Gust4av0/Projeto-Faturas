@@ -2,8 +2,8 @@ import express from "express";
 import multer from "multer";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
-import { fileURLToPath } from "url";
 import * as fs from "fs";
+import { getUploadsDir } from "../config.js";
 import { getDatabase } from "../database.js";
 import {
   mergePDFWithDescription,
@@ -12,13 +12,7 @@ import {
 } from "../pdfService.js";
 
 const router = express.Router();
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const uploadsDir = path.join(__dirname, "../uploads");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+const uploadsDir = getUploadsDir();
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -98,7 +92,7 @@ router.post("/upload-pdf", upload.single("file"), async (req, res) => {
     const originalPdfPath = req.file.path;
     const invoiceIdToUse = invoiceId || uuidv4();
     console.log(
-      `[upload-pdf] Iniciando upload: id=${invoiceId}, password=${password ? "sim" : "não"}, file=${originalPdfPath}`,
+      `[upload-pdf] Iniciando upload: id=${invoiceId}, password=${password ? "sim" : "nao"}, file=${originalPdfPath}`,
     );
 
     const pdfInfo = await extractPdfInfo(originalPdfPath, password);
