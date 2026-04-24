@@ -12,3 +12,4 @@ uploads/
 invoices.db
 invoices.db-shm
 invoices.db-wal
+.env

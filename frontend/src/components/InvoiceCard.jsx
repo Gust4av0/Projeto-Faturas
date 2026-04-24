@@ -83,7 +83,7 @@ export default function InvoiceCard({ invoice, onDelete, onEdit, onFileSelect })
         >
           {invoice.title}
         </h3>
-        <p className="text-gray-600 text-sm min-h-[40px] line-clamp-2 mb-4">
+        <p className="text-gray-600 text-sm min-h-[40px] line-clamp-2 mb-4 whitespace-pre-line">
           {invoice.description || 'Sem descricao cadastrada'}
         </p>
 

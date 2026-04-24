@@ -41,25 +41,28 @@ async function loadPdfLib() {
 }
 
 function wrapText(text, maxWidth, font, fontSize) {
-  const words = text.split(/\s+/).filter(Boolean);
+  const paragraphs = text.split(/\r?\n/);
   const lines = [];
-  let currentLine = "";
 
-  for (const word of words) {
-    const nextLine = currentLine ? `${currentLine} ${word}` : word;
-    if (font.widthOfTextAtSize(nextLine, fontSize) <= maxWidth) {
-      currentLine = nextLine;
+  for (const paragraph of paragraphs) {
+    if (!paragraph.trim()) {
+      lines.push(""); 
       continue;
     }
 
-    if (currentLine) {
-      lines.push(currentLine);
-    }
-    currentLine = word;
-  }
+    const words = paragraph.split(/\s+/).filter(Boolean);
+    let currentLine = "";
 
-  if (currentLine) {
-    lines.push(currentLine);
+    for (const word of words) {
+      const nextLine = currentLine ? `${currentLine} ${word}` : word;
+      if (font.widthOfTextAtSize(nextLine, fontSize) <= maxWidth) {
+        currentLine = nextLine;
+      } else {
+        if (currentLine) lines.push(currentLine);
+        currentLine = word;
+      }
+    }
+    if (currentLine) lines.push(currentLine);
   }
 
   return lines.length > 0 ? lines : [""];
